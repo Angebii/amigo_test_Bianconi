@@ -1,0 +1,23 @@
+name: amigo_test
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  # data handling
+  - numpy
+  - pandas
+  # climate data
+  - xarray
+  - netcdf4                 
+  # spatial data
+  - geopandas
+  # modelling
+  - scikit-learn    
+  # plotting
+  - matplotlib
+  - pyyaml
+  - psutil          
+  - pytest
+  - pip
+  - pip:
+      - torch       
