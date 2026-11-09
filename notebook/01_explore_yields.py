@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm
 
 XLSX = Path("DATA/OTHERS/Agreste_SAA_cereali_mais_Francia_2000-2020 (1).xlsx")
+PROCESSED_DIR = Path("data_processed")
 
 sheet_names = pd.ExcelFile(XLSX).sheet_names
 print(sheet_names)
@@ -112,6 +113,11 @@ national_anomaly = ((national_yield - national_trend)/ national_trend) * 100
 print("worst years (% from trend):")
 print(national_anomaly.round(1).sort_values())
 
+# %% Save the national anomaly
+national_table = national_anomaly.reset_index()
+national_table.columns = ["harvest_year", "anomaly_pct"]
+national_table.to_csv(PROCESSED_DIR / "national_yield_anomaly.csv", index=False)
+print(national_table.head())
 
 # %% Regional anomalies (%) from a linear trend per region
 ## For every region: fit a linear trend on all years and compute the relative anomaly (%).
@@ -146,7 +152,7 @@ print("For the national wrost years")
 print(anomaly_table[worst_years].round(0).to_string())
 
 
-# %% Regional trend slopes (t/ha per year), from the same function
+# %% Regional trend slopes (t/ha per year)
 print(regional_slopes.round(3).sort_values())
 
 
@@ -194,3 +200,26 @@ def plot_anomaly_heatmap(anomaly_table, region_order, title, label_threshold=5):
 
 region_order = area_soft.mean(axis=1).sort_values(ascending=False).index
 plot_anomaly_heatmap(anomaly_table, region_order, "Soft wheat yield anomalies from the regional linear trend (%)")
+
+# %% Save the anomalies in long format
+## One row per region and year, with the region code used in the GeoPackage
+anomaly_long = anomaly_table.stack()
+anomaly_long = anomaly_long.reset_index()
+anomaly_long.columns = ["regione", "year", "anomaly_pct"]
+
+## region_codes: region name -> code, computed in the "Keep metropolitan regions only" cell
+anomaly_long["cod_regione"] = anomaly_long["regione"].map(region_codes)
+## Raw yield and soft wheat area of every region and year, for the baseline
+yield_long = yield_soft.stack()
+yield_long = yield_long.reset_index()
+yield_long.columns = ["regione", "year", "yield_t_ha"]
+
+area_long = area_soft.stack()
+area_long = area_long.reset_index()
+area_long.columns = ["regione", "year", "area_ha"]
+
+anomaly_long = anomaly_long.merge(yield_long, on=["regione", "year"], how="left")
+anomaly_long = anomaly_long.merge(area_long, on=["regione", "year"], how="left")
+anomaly_long.to_csv(PROCESSED_DIR / "yield_anomalies.csv", index=False)
+print(anomaly_long.head())
+print("rows:", len(anomaly_long))
