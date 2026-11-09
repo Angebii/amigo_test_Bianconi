@@ -1,121 +1,27 @@
+# # Exploration of the climate data
+## Requires data_processed/yield_anomalies.csv and national_yield_anomaly.csv:
+## run notebook/01_explore_yields.py first.
+
 # %% Read all ERA5-Land variables
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import xarray as xr
-import geopandas as gpd
-import regionmask
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
+
+from amigo_yield import read_era5, compute_wind_speed, build_region_mask, compute_regional_means, add_harvest_year
 
 ERA5_DIR = Path("DATA/ERA5-Land")
 BOUNDARIES_FILE = Path("DATA/OTHERS/france_regions_2016.gpkg")
 PROCESSED_DIR = Path("data_processed")
-
-FOLDER_KEYWORDS = {
-	"maximum": "tmax",
-	"minimum": "tmin",
-	"precipitation": "precip",
-	"u_wind": "u10",
-	"v_wind": "v10",
-	"pressure": "sp",
-}
-
-
-## Short name of a variable from the name of its folder
-def get_short_name(folder_name):
-	lower_name = folder_name.lower()
-	for keyword, short_name in FOLDER_KEYWORDS.items():
-		if keyword in lower_name:
-			return short_name
-	return lower_name
-
-
-## Convert to common units: K -> degC, m of water -> mm, Pa -> hPa
-def convert_units(data):
-	units = data.attrs.get("units", "")
-
-	if units == "K":
-		data = data - 273.15
-		data.attrs["units"] = "degC"
-	elif units == "m":
-		data = data * 1000
-		data.attrs["units"] = "mm"
-	elif units == "Pa":
-		data = data / 100
-		data.attrs["units"] = "hPa"
-
-	return data
-
-
-## Read every variable folder of ERA5-Land.
-## Returns a dictionary short name -> data array (time x latitude x longitude)
-## and a table with the time frame and resolution of each variable.
-def read_era5(era5_dir):
-	variables = {}
-	summary_rows = []
-	variable_folders = []
-	for path in era5_dir.iterdir():
-		if path.is_dir():
-			variable_folders.append(path)
-	variable_folders = sorted(variable_folders)	
-	for variable_folder in variable_folders:
-		short_name = get_short_name(variable_folder.name)
-		monthly_files = sorted(variable_folder.glob("*.nc"))
-
-		dataset = xr.open_mfdataset(monthly_files, combine="by_coords", data_vars="minimal", coords="minimal", compat="override")
-
-		## Keep only the data variable, without extra coordinates 
-		variable_name = []
-
-		for name in dataset.data_vars:
-			if name != "spatial_ref":
-				variable_name.append(name)
-
-		variable_name = variable_name[0]
-		data = dataset[variable_name]
-		data = data.drop_vars(["expver", "number"], errors="ignore")
-		data = convert_units(data)
-		rounded_latitude = np.round(data["latitude"].values, 2)
-		rounded_longitude = np.round(data["longitude"].values, 2)
-		data = data.assign_coords(latitude=rounded_latitude, longitude=rounded_longitude)
-		data = data.sortby("latitude")
-
-		times = data["time"].values
-		row = {
-			"variable": short_name,
-			"folder": variable_folder.name,
-			"units": data.attrs.get("units"),
-			"first_day": str(times[0])[:10],
-			"last_day": str(times[-1])[:10],
-			"n_days": len(times),
-			"lat_step": round(float(np.median(np.diff(data["latitude"].values))), 3),
-			"lon_step": round(float(np.median(np.diff(data["longitude"].values))), 3),
-			"grid": str(data.sizes["latitude"]) + " x " + str(data.sizes["longitude"]),
-		}
-		summary_rows.append(row)
-		variables[short_name] = data
-
-	summary = pd.DataFrame(summary_rows)
-	return variables, summary
-
 
 era5_variables, era5_summary = read_era5(ERA5_DIR)
 print(era5_summary.to_string(index=False))
 
 
 # %% Daily wind speed from the u and v components
-## Speed = sqrt(u^2 + v^2), computed day by day before any averaging.
-## The daily u and v are already daily means, so this speed is slightly lower
-## than the true mean speed (winds from opposite directions within a day cancel out).
-u_wind = era5_variables["u10"]
-v_wind = era5_variables["v10"]
-
-wind_speed = np.sqrt(u_wind ** 2 + v_wind ** 2)
-wind_speed.attrs["units"] = "m/s"
-
-era5_variables["wind"] = wind_speed
+era5_variables["wind"] = compute_wind_speed(era5_variables["u10"], era5_variables["v10"])
 
 
 # %% Monthly means on the grid
@@ -130,33 +36,18 @@ for short_name, data in era5_variables.items():
 
 
 # %% Simple mean over the grid cells of each region
-## A cell belongs to a region if its centre falls inside the polygon 
-regions = gpd.read_file(BOUNDARIES_FILE)
-
-region_masks = regionmask.from_geopandas(regions, numbers="cod_regione", names="regione", name="regions")
+## A cell belongs to a region if its centre falls inside the polygon
 first_variable = list(monthly_variables.values())[0]
-region_mask = region_masks.mask_3D(first_variable["longitude"], first_variable["latitude"])
+region_mask = build_region_mask(BOUNDARIES_FILE, first_variable["longitude"], first_variable["latitude"])
 
 ## Number of cells in each region (must be greater than zero)
 cells_per_region = region_mask.sum(dim=["latitude", "longitude"])
 print(cells_per_region.to_series())
 
-monthly_tables = []
-for short_name, monthly in monthly_variables.items():
-	regional = monthly.where(region_mask).mean(dim=["latitude", "longitude"])
-	table = regional.to_dataframe(name=short_name)[[short_name]]
-	monthly_tables.append(table)
-
-monthly_climate = pd.concat(monthly_tables, axis=1)
-monthly_climate = monthly_climate.reset_index()
-monthly_climate = monthly_climate.rename(columns={"region": "cod_regione", "time": "date"})
+monthly_climate = compute_regional_means(monthly_variables, region_mask)
 
 ## Keep October to July and label every month with its harvest year
-monthly_climate["month"] = monthly_climate["date"].dt.month
-monthly_climate["harvest_year"] = monthly_climate["date"].dt.year
-is_autumn = monthly_climate["month"] >= 10
-monthly_climate.loc[is_autumn, "harvest_year"] = monthly_climate.loc[is_autumn, "harvest_year"] + 1
-monthly_climate = monthly_climate[monthly_climate["month"].isin(SEASON_MONTHS)]
+monthly_climate = add_harvest_year(monthly_climate)
 
 # %% Join the monthly climate with the yield anomalies
 yield_anomalies = pd.read_csv(PROCESSED_DIR / "yield_anomalies.csv")

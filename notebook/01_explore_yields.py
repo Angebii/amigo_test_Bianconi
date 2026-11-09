@@ -8,6 +8,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm
 
+from amigo_yield import get_crop_table, compute_regional_anomalies
+
 XLSX = Path("DATA/OTHERS/Agreste_SAA_cereali_mais_Francia_2000-2020 (1).xlsx")
 PROCESSED_DIR = Path("data_processed")
 
@@ -39,17 +41,6 @@ metro = long_table[is_metropolitan]
 region_codes = metro.groupby("regione")["cod_regione"].first()
 region_codes = region_codes.sort_values()
 print(region_codes)
-
-
-## Build a table with regions on rows and years on columns,
-## for one crop code and one indicator (Produzione, Superficie, Resa (calcolata))
-def get_crop_table(table, crop_code, indicator):
-	is_crop = table["codice"] == crop_code
-	is_indicator = table["indicatore"] == indicator
-	selection = table[is_crop & is_indicator]
-
-	crop_table = selection.pivot(index="regione", columns="anno", values="valore")
-	return crop_table
 
 
 # %% Winter vs spring soft wheat: share of winter wheat in soft wheat area
@@ -120,30 +111,7 @@ national_table.to_csv(PROCESSED_DIR / "national_yield_anomaly.csv", index=False)
 print(national_table.head())
 
 # %% Regional anomalies (%) from a linear trend per region
-## For every region: fit a linear trend on all years and compute the relative anomaly (%).
-## Returns the anomaly table (regions x years) and the trend slope of every region.
-def compute_regional_anomalies(yield_table):
-	years = yield_table.columns.to_numpy()
-
-	anomaly_dict = {}
-	slope_dict = {}
-
-	for region, region_yields in yield_table.iterrows():
-		values = region_yields.to_numpy()
-
-		slope, intercept = np.polyfit(years, values, deg=1)
-		expected_yield = slope * years + intercept
-
-		anomaly = (values / expected_yield - 1) * 100
-
-		anomaly_dict[region] = anomaly
-		slope_dict[region] = slope
-
-	anomaly_table = pd.DataFrame.from_dict(anomaly_dict, orient="index", columns=years)
-	slopes = pd.Series(slope_dict, name="slope_t_ha_per_year")
-	return anomaly_table, slopes
-
-
+## Trend fitted on all years: fine for exploration only (see amigo_yield.yields)
 anomaly_table, regional_slopes = compute_regional_anomalies(yield_soft)
 
 worst_years = [2001, 2003, 2007, 2011, 2016, 2020]
