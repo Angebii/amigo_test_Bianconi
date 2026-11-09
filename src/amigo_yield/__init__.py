@@ -21,3 +21,11 @@ from amigo_yield.climate import (
 from amigo_yield.indices import (
 	compute_window_index,
 )
+from amigo_yield.baseline import (
+	fit_trends,
+	compute_anomalies,
+	standardise_indices,
+	prepare_fold,
+	choose_alpha,
+	compute_metrics,
+)

@@ -17,8 +17,8 @@ def get_crop_table(table, crop_code, indicator):
 
 ## For every region: fit a linear trend on all the years of the table and compute the relative anomaly (%).
 ## Returns the anomaly table (regions x years) and the trend slope of every region.
-## The trend uses every year in the table
-
+## The trend uses every year in the table: fine for exploration only.
+## For model evaluation use fit_trends and compute_anomalies in baseline.py, on training years only.
 def compute_regional_anomalies(yield_table):
 	years = yield_table.columns.to_numpy()
 
