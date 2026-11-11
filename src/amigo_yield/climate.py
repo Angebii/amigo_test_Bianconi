@@ -20,6 +20,7 @@ FOLDER_KEYWORDS = {
 ## Growing season of winter soft wheat: sowing in October of year t-1, harvest in July of year t
 SEASON_START_MONTH = 10
 SEASON_END_MONTH = 7
+SECONDS_PER_DAY = 86400
 
 
 ## Short name of a variable from the name of its folder
@@ -44,7 +45,9 @@ def convert_units(data):
 	elif units == "Pa":
 		data = data / 100
 		data.attrs["units"] = "hPa"
-
+	elif units == "kg m-2 s-1":
+		data = data * SECONDS_PER_DAY
+		data.attrs["units"] = "mm"
 	return data
 
 

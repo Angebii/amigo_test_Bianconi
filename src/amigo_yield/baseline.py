@@ -49,6 +49,22 @@ def standardise_indices(train_rows, test_rows, index_names):
 	return standardised[0], standardised[1]
 
 
+## Inputs of the Ridge regression: standardised indices and the interaction term.
+## The standardisation uses the training rows only; the other rows can be any seasons with the
+## same indices (held-out years, or seasons of a climate projection, which have no yield).
+## interaction: pair of index names whose product is added as a last column (None for no interaction)
+def prepare_inputs(train_rows, other_rows, index_names, interaction=None):
+	x_train, x_other = standardise_indices(train_rows, other_rows, index_names)
+
+	if interaction is not None:
+		first = index_names.index(interaction[0])
+		second = index_names.index(interaction[1])
+		x_train = np.column_stack([x_train, x_train[:, first] * x_train[:, second]])
+		x_other = np.column_stack([x_other, x_other[:, first] * x_other[:, second]])
+
+	return x_train, x_other
+
+
 ## Inputs and target of one fold: anomalies, standardised indices and the interaction term.
 ## interaction: pair of index names whose product is added as a last column (None for no interaction)
 def prepare_fold(train_rows, test_rows, index_names, interaction=None):
@@ -56,13 +72,7 @@ def prepare_fold(train_rows, test_rows, index_names, interaction=None):
 	y_train = compute_anomalies(train_rows, trends)
 	y_test = compute_anomalies(test_rows, trends)
 
-	x_train, x_test = standardise_indices(train_rows, test_rows, index_names)
-
-	if interaction is not None:
-		first = index_names.index(interaction[0])
-		second = index_names.index(interaction[1])
-		x_train = np.column_stack([x_train, x_train[:, first] * x_train[:, second]])
-		x_test = np.column_stack([x_test, x_test[:, first] * x_test[:, second]])
+	x_train, x_test = prepare_inputs(train_rows, test_rows, index_names, interaction)
 
 	return x_train, y_train, x_test, y_test
 
@@ -101,6 +111,7 @@ def choose_alpha(train_rows, alphas, index_names, interaction=None):
 
 ## Metrics of the predictions of one model.
 ## rmse: typical error in percentage points of anomaly
+## skill_vs_zero: 1 - (RMSE model / RMSE zero model)^2; above 0 = better than predicting a normal year
 ## loss_hit_rate: share of loss seasons predicted as losses
 ## loss_false_alarm_rate: share of the other seasons wrongly predicted as losses
 def compute_metrics(observed, predicted, loss_threshold):
@@ -123,6 +134,7 @@ def compute_metrics(observed, predicted, loss_threshold):
 
 	return {
 		"rmse": rmse,
+		"skill_vs_zero": 1 - (rmse / rmse_zero) ** 2,
 		"correlation": correlation,
 		"loss_hit_rate": hit_rate,
 		"loss_false_alarm_rate": false_alarm_rate,

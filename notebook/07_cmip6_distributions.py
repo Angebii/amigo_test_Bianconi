@@ -25,7 +25,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from amigo_yield import read_era5, build_region_mask, compute_regional_means, read_cmip6_variable, interpolate_to_grid, bias_correct_grid, CMIP6_NAMES
+from amigo_yield import read_era5, build_region_mask, compute_regional_means, read_cmip6_variable, interpolate_to_grid, train_bias_correction, apply_bias_correction, CMIP6_NAMES
 
 CMIP6_DIR = Path("DATA/CMIP6")
 ERA5_DIR = Path("DATA/ERA5-Land")
@@ -101,7 +101,8 @@ else:
 
 			print(model, variable)
 			raw_variables[variable] = interpolated
-			corrected_variables[variable] = bias_correct_grid(observed, interpolated, interpolated, variable)
+			adjustment = train_bias_correction(observed, interpolated, variable)
+			corrected_variables[variable] = apply_bias_correction(adjustment, interpolated, variable)
 
 		raw_table = compute_regional_means(raw_variables, region_mask)
 		raw_table["source"] = model
@@ -214,7 +215,6 @@ print("saved results in", RESULTS_DIR)
 ## and the spread of the models (shaded band between the lowest and the highest model, month by month).
 ## Top row: raw models. Bottom row: bias-corrected models.
 ## France: mean of the 13 regions on every day, then mean of every calendar month over 2000-2014.
-MONTH_LABELS = ["Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul"]
 PANEL_TITLES = {
 	"tmax": "Maximum temperature (degC)",
 	"tmin": "Minimum temperature (degC)",
@@ -274,4 +274,3 @@ fig.legend(handles, labels, loc="lower center", ncol=len(labels), fontsize=11, f
 fig.tight_layout(rect=[0, 0.05, 1, 0.95])
 fig.savefig(RESULTS_DIR / "ensemble_seasonal_cycle.png", dpi=150)
 plt.show()
-# %%

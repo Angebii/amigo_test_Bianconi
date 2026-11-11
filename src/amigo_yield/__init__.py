@@ -5,6 +5,7 @@
 ##   indices   - climate indices over windows of months
 ##   baseline  - baseline model
 ##   deep      - deep model
+##   cmip6     - CMIP6 reading, interpolation on the ERA5-Land grid, bias correction
 
 
 from amigo_yield.yields import (
@@ -22,11 +23,15 @@ from amigo_yield.climate import (
 )
 from amigo_yield.indices import (
 	compute_window_index,
+	compute_season_indices,
+	INDEX_NAMES,
+	HOT_DAY_THRESHOLD,
 )
 from amigo_yield.baseline import (
 	fit_trends,
 	compute_anomalies,
 	standardise_indices,
+	prepare_inputs,
 	prepare_fold,
 	choose_alpha,
 	compute_metrics,
@@ -48,9 +53,7 @@ from amigo_yield.deep import (
 from amigo_yield.cmip6 import (
 	read_cmip6_variable,
 	interpolate_to_grid,
-	bias_correct_grid,
-	VARIABLE_KINDS,
+	train_bias_correction,
+	apply_bias_correction,
 	CMIP6_NAMES,
 )
-
-

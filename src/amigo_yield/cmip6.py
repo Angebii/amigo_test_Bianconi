@@ -67,24 +67,24 @@ VARIABLE_KINDS = {"tmax": "+", "tmin": "+", "precip": "*"}
 VARIABLE_UNITS = {"tmax": "degC", "tmin": "degC", "precip": "mm/d"}
 
 
-## Bias correction of a gridded CMIP6 variable with quantile delta mapping (Cannon et al., 2015),
-## implementation of the xsdba package (statistical downscaling and bias adjustment of xclim,
-## now a separate package). Every grid cell and calendar month gets its own correction.
+## Training of the bias correction of a gridded CMIP6 variable with quantile delta mapping
+## (Cannon et al., 2015), implementation of the xsdba package (statistical downscaling and bias
+## adjustment of xclim, now a separate package): the quantiles of ERA5-Land and of the raw historical
+## model are computed for every grid cell and calendar month. The trained correction is then applied
+## with apply_bias_correction to any period of the same model (the historical period or a future window),
+## so it is computed only once per model and variable.
 ## observed: ERA5-Land of the calibration period (time, latitude, longitude)
-## model_historical: model of the calibration period, interpolated on the same grid
-## model_target: model values to correct (the calibration period itself or a future period), same grid
+## model_historical: raw model of the calibration period, interpolated on the same grid
 ## variable: short name (tmax, tmin, precip)
 ## Precipitation: values below the trace are replaced by small random values before the
-## correction (jitter_under_thresh), and corrected values below the trace are set back to zero.
-## Sea cells (NaN in ERA5-Land and in the interpolated model) stay NaN.
+## quantiles are computed (jitter_under_thresh), so that dry days can be ranked.
 ## The arrays should be chunked in space and not in time (xsdba needs the whole series of every cell).
-def bias_correct_grid(observed, model_historical, model_target, variable):
+def train_bias_correction(observed, model_historical, variable):
 	kind = VARIABLE_KINDS[variable]
 	units = VARIABLE_UNITS[variable]
 
 	observed = observed.assign_attrs(units=units)
 	model_historical = model_historical.assign_attrs(units=units)
-	model_target = model_target.assign_attrs(units=units)
 
 	if kind == "+":
 		adjustment = QuantileDeltaMapping.train(
@@ -97,6 +97,23 @@ def bias_correct_grid(observed, model_historical, model_target, variable):
 			nquantiles=NUMBER_OF_QUANTILES, kind="*", group="time.month",
 			jitter_under_thresh_value=f"{PRECIPITATION_TRACE} {units}",
 		)
+
+	## Compute the quantiles now, so that they are not recomputed for every period corrected
+	adjustment.ds.load()
+
+	return adjustment
+
+
+## Application of a trained bias correction to a gridded CMIP6 variable of the same model.
+## adjustment: result of train_bias_correction
+## model_target: raw model values to correct (the calibration period itself or a future window)
+## variable: short name (tmax, tmin, precip)
+## Precipitation: corrected values below the trace are set back to zero, as in the reference
+## implementation of quantile delta mapping (R package MBC, function QDM, by A. J. Cannon).
+## Sea cells (NaN in ERA5-Land and in the interpolated model) stay NaN.
+def apply_bias_correction(adjustment, model_target, variable):
+	kind = VARIABLE_KINDS[variable]
+	model_target = model_target.assign_attrs(units=VARIABLE_UNITS[variable])
 
 	corrected = adjustment.adjust(model_target, interp="linear")
 
