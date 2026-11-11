@@ -29,3 +29,17 @@ from amigo_yield.baseline import (
 	choose_alpha,
 	compute_metrics,
 )
+
+from amigo_yield.deep import (
+	build_daily_sequences,
+	standardise_sequences,
+	prepare_deep_fold,
+	YieldCNN,
+	count_parameters,
+	compute_rmse,
+	predict,
+	train_model,
+	search_hyperparameters,
+	run_deep_leave_one_year_out,
+)
+
