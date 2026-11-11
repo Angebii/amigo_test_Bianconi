@@ -3,6 +3,8 @@
 ##   yields    - Agreste yield tables and regional yield anomalies
 ##   climate   - ERA5-Land reading, regional means, harvest year
 ##   indices   - climate indices over windows of months
+##   baseline  - baseline model
+##   deep      - deep model
 
 
 from amigo_yield.yields import (
@@ -42,4 +44,13 @@ from amigo_yield.deep import (
 	search_hyperparameters,
 	run_deep_leave_one_year_out,
 )
+
+from amigo_yield.cmip6 import (
+	read_cmip6_variable,
+	interpolate_to_grid,
+	bias_correct_grid,
+	VARIABLE_KINDS,
+	CMIP6_NAMES,
+)
+
 
