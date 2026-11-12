@@ -1,18 +1,23 @@
 # # Exploration of the Agreste yield workbook
+## Requires data_processed/yield_anomalies.csv: run scripts/01_yield_anomalies.py first.
 
 # %%
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import yaml
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm
 
-from amigo_yield import get_crop_table, compute_regional_anomalies
+from amigo_yield import get_crop_table
 
-XLSX = Path("DATA/OTHERS/Agreste_SAA_cereali_mais_Francia_2000-2020 (1).xlsx")
+## Settings that change with new data, in config.yml at the root of the repository
+with open("config.yml", encoding="utf-8") as config_file:
+	pipeline_config = yaml.safe_load(config_file)
+
+XLSX = Path(pipeline_config["paths"]["yields_file"])
 PROCESSED_DIR = Path("data_processed")
-PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
 sheet_names = pd.ExcelFile(XLSX).sheet_names
 print(sheet_names)
@@ -89,40 +94,22 @@ max_difference = difference.to_numpy().max()
 print("max |production/area - yield|:", max_difference)
 
 
-# %% National yield (area-weighted) and linear trend
-## National yield = total production / total area 
-total_production = prod_soft.sum()
-total_area = area_soft.sum()
-national_yield = total_production / total_area
-
-years = national_yield.index.to_numpy()
-slope, intercept = np.polyfit(years, national_yield.to_numpy(), deg=1)
-print(f"national trend slope: {slope:.4f} t/ha per year")
-
-national_trend = slope * years + intercept
-national_anomaly = ((national_yield - national_trend)/ national_trend) * 100
+# %% National anomaly (computed in scripts/01_yield_anomalies.py)
+national_table = pd.read_csv(PROCESSED_DIR / "national_yield_anomaly.csv")
 
 print("worst years (% from trend):")
-print(national_anomaly.round(1).sort_values())
+print(national_table.sort_values("anomaly_pct").round(1).to_string(index=False))
 
-# %% Save the national anomaly
-national_table = national_anomaly.reset_index()
-national_table.columns = ["harvest_year", "anomaly_pct"]
-national_table.to_csv(PROCESSED_DIR / "national_yield_anomaly.csv", index=False)
-print(national_table.head())
 
-# %% Regional anomalies (%) from a linear trend per region
-## Trend fitted on all years: fine for exploration only (see amigo_yield.yields)
-anomaly_table, regional_slopes = compute_regional_anomalies(yield_soft)
+# %% Regional anomalies (computed in scripts/01_yield_anomalies.py)
+## One row per region, one column per year
+anomaly_long = pd.read_csv(PROCESSED_DIR / "yield_anomalies.csv")
+anomaly_table = anomaly_long.pivot(index="regione", columns="year", values="anomaly_pct")
 
 worst_years = [2001, 2003, 2007, 2011, 2016, 2020]
 print(anomaly_table.round(0).to_string())
-print("For the national wrost years")
+print("For the national worst years")
 print(anomaly_table[worst_years].round(0).to_string())
-
-
-# %% Regional trend slopes (t/ha per year)
-print(regional_slopes.round(3).sort_values())
 
 
 # %% Heatmap of regional anomalies
@@ -169,26 +156,4 @@ def plot_anomaly_heatmap(anomaly_table, region_order, title, label_threshold=5):
 
 region_order = area_soft.mean(axis=1).sort_values(ascending=False).index
 plot_anomaly_heatmap(anomaly_table, region_order, "Soft wheat yield anomalies from the regional linear trend (%)")
-
-# %% Save the anomalies in long format
-## One row per region and year, with the region code used in the GeoPackage
-anomaly_long = anomaly_table.stack()
-anomaly_long = anomaly_long.reset_index()
-anomaly_long.columns = ["regione", "year", "anomaly_pct"]
-
-## region_codes: region name -> code, computed in the "Keep metropolitan regions only" cell
-anomaly_long["cod_regione"] = anomaly_long["regione"].map(region_codes)
-## Raw yield and soft wheat area of every region and year, for the baseline
-yield_long = yield_soft.stack()
-yield_long = yield_long.reset_index()
-yield_long.columns = ["regione", "year", "yield_t_ha"]
-
-area_long = area_soft.stack()
-area_long = area_long.reset_index()
-area_long.columns = ["regione", "year", "area_ha"]
-
-anomaly_long = anomaly_long.merge(yield_long, on=["regione", "year"], how="left")
-anomaly_long = anomaly_long.merge(area_long, on=["regione", "year"], how="left")
-anomaly_long.to_csv(PROCESSED_DIR / "yield_anomalies.csv", index=False)
-print(anomaly_long.head())
-print("rows:", len(anomaly_long))
+# %%

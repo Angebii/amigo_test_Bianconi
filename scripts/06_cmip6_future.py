@@ -1,13 +1,13 @@
-# # Bias correction of the CMIP6 SSP5-8.5 projections
+## Bias correction of the CMIP6 SSP5-8.5 projections
 ## Requires:
 ##   DATA/CMIP6/<model>/historical/<variable>/*.nc   (daily tasmax, tasmin, pr, calibration 2000-2014)
 ##   DATA/CMIP6/<model>/ssp585/<variable>/*.nc       (daily tasmax, tasmin, pr, 2015-2090)
 ##   DATA/ERA5-Land/<variable folders>/*.nc           (daily gridded ERA5-Land: grid, land cells, calibration)
 ##   DATA/OTHERS/france_regions_2016.gpkg             (region boundaries)
-##   data_processed/era5_daily_regional.csv           (notebook/03_climate_indices.py)
-##   data_processed/cmip6_historical_regional.csv     (notebook/07_cmip6_distributions.py)
-##   data_processed/baseline_dataset.csv              (notebook/03_climate_indices.py)
-##   results/baseline/config.json                     (notebook/04_baseline.py: indices, interaction, penalty)
+##   data_processed/era5_daily_regional.csv           (scripts/02_climate_indices.py)
+##   data_processed/cmip6_historical_regional.csv     (scripts/05_cmip6_historical.py)
+##   data_processed/baseline_dataset.csv              (scripts/02_climate_indices.py)
+##   results/baseline/config.json                     (scripts/03_baseline.py: indices, interaction, penalty)
 ##
 ## Two future windows of 20 harvest seasons, as long as the baseline of the yields (2001-2019):
 ##   2031-2050: from 1 October 2030 (sowing of the 2031 season) to 31 July 2050
@@ -20,25 +20,33 @@
 ## Each window is corrected on its own, so that quantile delta mapping keeps the change simulated
 ## by the model between 2000-2014 and that window. Then regional means, as for ERA5-Land.
 
-# %%
 import json
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
+import yaml
 from sklearn.linear_model import Ridge
 import matplotlib.pyplot as plt
 
-from amigo_yield import prepare_fold, prepare_inputs, compute_season_indices, INDEX_NAMES, read_era5, build_region_mask, compute_regional_means, read_cmip6_variable, interpolate_to_grid, train_bias_correction, apply_bias_correction, CMIP6_NAMES
+from amigo_yield import prepare_fold, prepare_inputs, compute_season_indices, INDEX_NAMES, read_era5, build_region_mask, compute_regional_means, read_cmip6_variable, interpolate_to_grid, train_bias_correction, apply_bias_correction, CMIP6_NAMES, compute_distribution_statistics, STATISTIC_NAMES
 
-CMIP6_DIR = Path("DATA/CMIP6")
-ERA5_DIR = Path("DATA/ERA5-Land")
-BOUNDARIES_FILE = Path("DATA/OTHERS/france_regions_2016.gpkg")
+## Settings that change with new data, in config.yml at the root of the repository
+with open("config.yml", encoding="utf-8") as config_file:
+	pipeline_config = yaml.safe_load(config_file)
+
+CMIP6_DIR = Path(pipeline_config["paths"]["cmip6_dir"])
+ERA5_DIR = Path(pipeline_config["paths"]["era5_dir"])
+BOUNDARIES_FILE = Path(pipeline_config["paths"]["boundaries_file"])
+
+## Future scenario: folder name in DATA/CMIP6/<model>/ and name used in the figures
+EXPERIMENT = pipeline_config["cmip6"]["experiment"]
+EXPERIMENT_LABEL = pipeline_config["cmip6"]["label"]
 PROCESSED_DIR = Path("data_processed")
-FUTURE_RAW_FILE = PROCESSED_DIR / "cmip6_ssp585_regional.csv"
-FUTURE_CORRECTED_FILE = PROCESSED_DIR / "cmip6_ssp585_corrected_regional.csv"
+## The name of the scenario is part of the file names, so a new scenario never reads the files of another one
+FUTURE_RAW_FILE = PROCESSED_DIR / ("cmip6_" + EXPERIMENT + "_regional.csv")
+FUTURE_CORRECTED_FILE = PROCESSED_DIR / ("cmip6_" + EXPERIMENT + "_corrected_regional.csv")
 
-MODELS = ["CNRM-ESM2-1", "EC-Earth3", "IPSL-CM6A-LR"]
+MODELS = pipeline_config["cmip6"]["models"]
 VARIABLE_NAMES = ["tmax", "tmin", "precip"]
 
 ## Calibration period: common period of the historical simulations and ERA5-Land
@@ -46,28 +54,22 @@ CALIBRATION_START = "2000-01-01"
 CALIBRATION_END = "2014-12-31"
 
 ## Future windows: name -> first and last day (20 harvest seasons each)
-WINDOWS = {
-	"2031-2050": ("2030-10-01", "2050-07-31"),
-	"2071-2090": ("2070-10-01", "2090-07-31"),
-}
+WINDOWS = pipeline_config["cmip6"]["windows"]
 
 ## Present: the 19 harvest seasons of the yields used to train the Ridge regression,
 ## from 1 October 2000 (sowing of the 2001 season) to 31 July 2019
-PRESENT_START = "2000-10-01"
-PRESENT_END = "2019-07-31"
+PRESENT_NAME = pipeline_config["present"]["name"]
+PRESENT_START, PRESENT_END = pipeline_config["present"]["period"]
 
 ## Months of the growing season
 SEASON_MONTHS = [10, 11, 12, 1, 2, 3, 4, 5, 6, 7]
-
-## Percentiles of the daily distributions
-PERCENTILES = [1, 5, 10, 25, 50, 75, 90, 95, 99]
 
 ## Chunks of the grids for the bias correction: whole time series, blocks of cells
 ## (xsdba needs the whole series of every cell; smaller blocks use less memory)
 CHUNKS = {"time": -1, "latitude": 24, "longitude": 36}
 
 
-# %% ERA5-Land daily grids of the calibration period, grid, land cells and region mask
+## ERA5-Land daily grids of the calibration period, grid, land cells and region mask
 era5_variables, _ = read_era5(ERA5_DIR, VARIABLE_NAMES)
 for variable in VARIABLE_NAMES:
 	era5_variables[variable] = era5_variables[variable].sel(time=slice(CALIBRATION_START, CALIBRATION_END))
@@ -81,7 +83,7 @@ region_mask = build_region_mask(BOUNDARIES_FILE, longitudes, latitudes)
 print("grid:", len(latitudes), "x", len(longitudes), "| land cells:", int(land_mask.sum()))
 
 
-# %% Correction of every model and window, then regional means of the raw and of the corrected grids.
+## Correction of every model and window, then regional means of the raw and of the corrected grids.
 ## The results are saved to CSV files: if both files exist, they are read instead of recomputed.
 ## Recomputing: the correction is trained 9 times (3 models x 3 variables) and applied 18 times (x 2 windows).
 if FUTURE_RAW_FILE.exists() and FUTURE_CORRECTED_FILE.exists():
@@ -112,7 +114,7 @@ else:
 
 			## Application to every window of SSP5-8.5
 			for window, (start_date, end_date) in WINDOWS.items():
-				future = read_cmip6_variable(CMIP6_DIR, model, "ssp585", cmip6_name, start_date, end_date)
+				future = read_cmip6_variable(CMIP6_DIR, model, EXPERIMENT, cmip6_name, start_date, end_date)
 				future = interpolate_to_grid(future, latitudes, longitudes, land_mask).chunk(CHUNKS)
 
 				raw_variables[window][variable] = future
@@ -138,12 +140,12 @@ else:
 	print("saved", FUTURE_RAW_FILE, "and", FUTURE_CORRECTED_FILE)
 
 
-# %% Check: dates and number of days of every model and window
+## Check: dates and number of days of every model and window
 check = future_corrected_daily.groupby(["source", "window"])["date"].agg(["min", "max", "count"])
 print(check)
 
 
-# %% Check: quantile delta mapping keeps the change simulated by every model.
+## Check: quantile delta mapping keeps the change simulated by every model.
 ## Change of the mean of the growing season (October to July) between 2000-2014 and every window:
 ##   raw:       raw future minus raw historical of the same model
 ##   corrected: corrected future minus ERA5-Land (the corrected historical has the ERA5-Land distribution)
@@ -182,7 +184,7 @@ changes = pd.DataFrame(change_rows)
 print(changes.round(1).to_string(index=False))
 
 
-# %% Daily distributions: ERA5-Land of the present (the data of the Ridge regression) and the
+## Daily distributions: ERA5-Land of the present (the data of the Ridge regression) and the
 ## corrected models of every future window, before any index is computed.
 ## Present: ERA5-Land, harvest seasons 2001-2019. Future: every corrected model and the multi-model
 ## mean of the corrected daily values ((CNRM-ESM2-1 + EC-Earth3 + IPSL-CM6A-LR) / 3 for every region
@@ -190,7 +192,7 @@ print(changes.round(1).to_string(index=False))
 is_present = (era5_daily["date"] >= PRESENT_START) & (era5_daily["date"] <= PRESENT_END)
 present_daily = era5_daily[is_present].copy()
 present_daily["source"] = "ERA5-Land"
-present_daily["window"] = "2001-2019"
+present_daily["window"] = PRESENT_NAME
 
 ## Multi-model mean of the corrected daily values, window by window
 multi_model_future = future_corrected_daily.groupby(["window", "cod_regione", "date"])[VARIABLE_NAMES].mean().reset_index()
@@ -203,13 +205,12 @@ comparison_daily = comparison_daily[is_in_season]
 print(comparison_daily.groupby(["window", "source"])["date"].agg(["min", "max", "count"]))
 
 
-# %% Statistics of the daily distribution of every source and window:
+## Statistics of the daily distribution of every source and window:
 ## mean, standard deviation, minimum, percentiles and maximum of all the daily regional values
-statistic_names = ["mean", "std", "min"] + ["p" + str(p) for p in PERCENTILES] + ["max"]
 CORRECTED_MODELS = [model + " corrected" for model in MODELS]
 
 ## Order of the rows: present, then every window with the three models and their mean
-source_windows = [("ERA5-Land", "2001-2019")]
+source_windows = [("ERA5-Land", PRESENT_NAME)]
 for window in WINDOWS:
 	for source in CORRECTED_MODELS + ["multi-model mean corrected"]:
 		source_windows.append((source, window))
@@ -220,30 +221,23 @@ for source, window in source_windows:
 	source_days = comparison_daily[is_source]
 
 	for variable in VARIABLE_NAMES:
-		values = source_days[variable].dropna().to_numpy()
-
 		row = {"source": source, "window": window, "variable": variable}
-		row["mean"] = values.mean()
-		row["std"] = values.std()
-		row["min"] = values.min()
-		for p in PERCENTILES:
-			row["p" + str(p)] = np.percentile(values, p)
-		row["max"] = values.max()
+		row.update(compute_distribution_statistics(source_days[variable]))
 		statistic_rows.append(row)
 
 future_statistics = pd.DataFrame(statistic_rows)
 
 for variable in VARIABLE_NAMES:
 	table = future_statistics[future_statistics["variable"] == variable]
-	table = table.set_index(["window", "source"])[statistic_names]
+	table = table.set_index(["window", "source"])[STATISTIC_NAMES]
 	print()
 	print(variable)
 	print(table.round(1).to_string())
 
 
-# %% Change from the present: every future source minus ERA5-Land 2001-2019, statistic by statistic.
+## Change from the present: every future source minus ERA5-Land 2001-2019, statistic by statistic.
 ## Temperature in degC, precipitation in mm per day.
-present_statistics = future_statistics[future_statistics["source"] == "ERA5-Land"].set_index("variable")[statistic_names]
+present_statistics = future_statistics[future_statistics["source"] == "ERA5-Land"].set_index("variable")[STATISTIC_NAMES]
 
 change_rows = []
 for _, row in future_statistics.iterrows():
@@ -251,7 +245,7 @@ for _, row in future_statistics.iterrows():
 		continue
 
 	change = {"source": row["source"], "window": row["window"], "variable": row["variable"]}
-	for name in statistic_names:
+	for name in STATISTIC_NAMES:
 		change[name] = row[name] - present_statistics.loc[row["variable"], name]
 	change_rows.append(change)
 
@@ -259,13 +253,13 @@ future_changes = pd.DataFrame(change_rows)
 
 for variable in VARIABLE_NAMES:
 	table = future_changes[future_changes["variable"] == variable]
-	table = table.set_index(["window", "source"])[statistic_names]
+	table = table.set_index(["window", "source"])[STATISTIC_NAMES]
 	print()
 	print(variable, "minus ERA5-Land 2001-2019")
 	print(table.round(1).to_string())
 
 
-# %% Save the tables
+## Save the tables
 RESULTS_DIR = Path("results") / "cmip6"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 future_statistics.to_csv(RESULTS_DIR / "future_distribution_statistics.csv", index=False)
@@ -273,16 +267,16 @@ future_changes.to_csv(RESULTS_DIR / "future_distribution_changes.csv", index=Fal
 print("saved results in", RESULTS_DIR)
 
 
-# # Level 1: climate indices of the present and of the future, ensemble on the indices
+## Level 1: climate indices of the present and of the future, ensemble on the indices
 ## The seven indices of the Ridge regression (compute_season_indices, the same function used for
-## ERA5-Land in notebook/03_climate_indices.py) are computed on ERA5-Land 2001-2019 and on every
+## ERA5-Land in scripts/02_climate_indices.py) are computed on ERA5-Land 2001-2019 and on every
 ## corrected model in every window. The ensemble is made on the indices: every statistic is computed
 ## for every model, then averaged over the three models; the lowest and the highest model give the spread.
 
-# %% Indices of every season and region: present (ERA5-Land) and every corrected model and window
+## Indices of every season and region: present (ERA5-Land) and every corrected model and window
 present_indices = compute_season_indices(present_daily)
 present_indices["source"] = "ERA5-Land"
-present_indices["window"] = "2001-2019"
+present_indices["window"] = PRESENT_NAME
 
 index_tables = [present_indices]
 for model in CORRECTED_MODELS:
@@ -302,7 +296,7 @@ print(season_indices.groupby(["window", "source"])["harvest_year"].agg(["min", "
 season_indices.to_csv(PROCESSED_DIR / "season_indices_present_future.csv", index=False)
 
 
-# %% Mean of every index: present, every model, and ensemble (mean of the three models, lowest, highest)
+## Mean of every index: present, every model, and ensemble (mean of the three models, lowest, highest)
 ## Mean over all regions and seasons of the window
 index_means = season_indices.groupby(["window", "source"])[INDEX_NAMES].mean()
 
@@ -328,7 +322,7 @@ index_means = pd.concat([index_means, ensemble_means]).sort_index()
 print(index_means.round(1).T.to_string())
 
 
-# %% Frequency of extreme seasons: share of region-seasons beyond the extremes of the present.
+## Frequency of extreme seasons: share of region-seasons beyond the extremes of the present.
 ## For every region, the thresholds are the 10th and the 90th percentile of the index over the
 ## present seasons (2001-2019), so by construction 10% of the present seasons are below and 10% above.
 ## A share above 10% in the future means that seasons extreme today become more frequent.
@@ -370,13 +364,13 @@ frequencies = pd.concat([frequencies, ensemble_frequencies]).sort_index()
 print(frequencies.round(0).T.to_string())
 
 
-# %% Save the tables of level 1
+## Save the tables of level 1
 index_means.to_csv(RESULTS_DIR / "index_means_present_future.csv")
 frequencies.to_csv(RESULTS_DIR / "index_extreme_frequencies.csv")
 print("saved results in", RESULTS_DIR)
 
 
-# # Level 2: yield anomalies predicted by the Ridge regression of the baseline
+## Level 2: yield anomalies predicted by the Ridge regression of the baseline
 ## The Ridge regression is fitted once on all the 247 region-seasons 2001-2019, with the indices,
 ## the interaction and the penalty of the baseline (results/baseline/config.json). It is then applied
 ## to the indices of every corrected model and window. The indices of the future are standardised
@@ -385,7 +379,7 @@ print("saved results in", RESULTS_DIR)
 ## The predictions are anomalies from the technology trend: they give the effect of the climate
 ## with the technology of today. The ensemble is made on the results of every model.
 
-# %% Configuration of the baseline and final Ridge regression on all the region-seasons
+## Configuration of the baseline and final Ridge regression on all the region-seasons
 with open(Path("results") / "baseline" / "config.json") as config_file:
 	baseline_config = json.load(config_file)
 
@@ -403,12 +397,12 @@ final_ridge.fit(x_all, y_all)
 print("region-seasons used for the fit:", len(baseline_dataset))
 
 
-# %% Predicted anomalies of the present and of every corrected model and window
+## Predicted anomalies of the present and of every corrected model and window
 ## Present: the same final model applied to the 2001-2019 indices (fitted values), so that present
 ## and future are predicted in the same way; the observed anomalies are kept for comparison.
 present_predictions = baseline_dataset[["cod_regione", "harvest_year"]].copy()
 present_predictions["source"] = "ERA5-Land"
-present_predictions["window"] = "2001-2019"
+present_predictions["window"] = PRESENT_NAME
 present_predictions["observed_anomaly"] = y_all
 present_predictions["predicted_anomaly"] = final_ridge.predict(x_all)
 
@@ -426,7 +420,7 @@ yield_predictions.to_csv(RESULTS_DIR / "yield_anomaly_predictions.csv", index=Fa
 print(yield_predictions.groupby(["window", "source"])["harvest_year"].agg(["min", "max", "count"]))
 
 
-# %% Extrapolation: share of the future region-seasons with an index outside the range of 2001-2019.
+## Extrapolation: share of the future region-seasons with an index outside the range of 2001-2019.
 ## The Ridge regression is linear: outside the values seen in the fit it extends the same slope,
 ## so these predictions are less reliable.
 x_train_inputs, x_future_inputs = prepare_inputs(baseline_dataset, future_rows, ridge_index_names, None)
@@ -442,7 +436,7 @@ outside_shares = outside.groupby(["window", "source"]).mean() * 100
 print(outside_shares.round(0).T.to_string())
 
 
-# %% Summary of every source and window: mean predicted anomaly and share of loss seasons
+## Summary of every source and window: mean predicted anomaly and share of loss seasons
 ## (predicted anomaly below the loss threshold of the baseline), then the ensemble of the three models
 summary_rows = []
 for (window, source), rows in yield_predictions.groupby(["window", "source"]):
@@ -475,11 +469,8 @@ for window in WINDOWS:
 yield_summary = pd.concat([yield_summary, pd.DataFrame(ensemble_rows).set_index(["window", "source"])]).sort_index()
 print(yield_summary.round(1).to_string())
 
-yield_summary.to_csv(RESULTS_DIR / "yield_anomaly_summary.csv")
-outside_shares.to_csv(RESULTS_DIR / "extrapolation_shares.csv")
-print("saved results in", RESULTS_DIR)
 
-# %% Multi-model mean: the daily values of the three corrected models averaged for every region and day
+## Multi-model mean: the daily values of the three corrected models averaged for every region and day
 ## (multi_model_future, computed above), then indices and Ridge regression as for every model
 multi_model_tables = []
 for window in WINDOWS:
@@ -505,7 +496,7 @@ for window in WINDOWS:
 yield_summary = yield_summary.sort_index()
 print(yield_summary.round(1).to_string())
 
-# %% Figure: share of seasons with a predicted loss, present and future windows.
+## Figure: share of seasons with a predicted loss, present and future windows.
 ## Bar: mean of the three models (ensemble mean). Dots: every model, so the distance between the
 ## dots shows how much the result depends on the climate model. Black diamond: multi-model mean
 ## (daily values of the three models averaged before computing the indices).
@@ -515,12 +506,12 @@ MODEL_COLOURS = {
 	"IPSL-CM6A-LR corrected": "#eda100",
 }
 name = "predicted loss seasons %"
-window_names = ["2001-2019"] + list(WINDOWS)
+window_names = [PRESENT_NAME] + list(WINDOWS)
 
 fig, ax = plt.subplots(figsize=(7, 5))
 
 ## Present: one bar (ERA5-Land)
-ax.bar(0, yield_summary.loc[("2001-2019", "ERA5-Land"), name], width=0.6, color="#9e9e9e")
+ax.bar(0, yield_summary.loc[(PRESENT_NAME, "ERA5-Land"), name], width=0.6, color="#9e9e9e")
 
 ## Future: bar = ensemble mean, dots = the three models, diamond = multi-model mean
 for position, window in enumerate(WINDOWS, start=1):
@@ -535,12 +526,17 @@ for position, window in enumerate(WINDOWS, start=1):
 	ax.scatter(position, yield_summary.loc[(window, "multi-model mean corrected"), name], marker="D", color="black", s=70, zorder=4, label=label)
 
 ax.set_xticks(range(len(window_names)))
-ax.set_xticklabels(["present\n2001-2019", "2031-2050", "2071-2090"], fontsize=11)
+ax.set_xticklabels(["present\n" + PRESENT_NAME] + list(WINDOWS), fontsize=11)
 ax.set_ylabel("Seasons with a predicted loss (%)", fontsize=12)
-ax.set_title("Seasons with a yield loss larger than 10%, SSP5-8.5", fontsize=13)
+ax.set_title("Seasons with a yield loss larger than 10%, " + EXPERIMENT_LABEL, fontsize=13)
 ax.tick_params(axis="y", labelsize=11)
 ax.grid(axis="y", alpha=0.3)
 ax.legend(fontsize=10, frameon=False, loc="upper left")
 fig.tight_layout()
 fig.savefig(RESULTS_DIR / "loss_seasons.png", dpi=150)
-plt.show()
+
+
+## Save the tables of level 2 (after the multi-model mean, so its rows are included)
+yield_summary.to_csv(RESULTS_DIR / "yield_anomaly_summary.csv")
+outside_shares.to_csv(RESULTS_DIR / "extrapolation_shares.csv")
+print("saved results in", RESULTS_DIR)

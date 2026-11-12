@@ -1,17 +1,21 @@
-# # Climate indices for the baseline
+## Climate indices for the baseline
 ## Requires data_processed/yield_anomalies.csv with the columns yield_t_ha and area_ha:
-## run notebook/01_explore_yields.py first.
+## run scripts/01_yield_anomalies.py first.
 
-# %%
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import yaml
 
 from amigo_yield import compute_season_indices, read_era5, build_region_mask, compute_regional_means, add_harvest_year, compute_window_index
 
-ERA5_DIR = Path("DATA/ERA5-Land")
-BOUNDARIES_FILE = Path("DATA/OTHERS/france_regions_2016.gpkg")
+## Settings that change with new data, in config.yml at the root of the repository
+with open("config.yml", encoding="utf-8") as config_file:
+	pipeline_config = yaml.safe_load(config_file)
+
+ERA5_DIR = Path(pipeline_config["paths"]["era5_dir"])
+BOUNDARIES_FILE = Path(pipeline_config["paths"]["boundaries_file"])
 PROCESSED_DIR = Path("data_processed")
 DAILY_FILE = PROCESSED_DIR / "era5_daily_regional.csv"
 DATASET_FILE = PROCESSED_DIR / "baseline_dataset.csv"
@@ -23,7 +27,7 @@ INDEX_VARIABLES = ["tmax", "tmin", "precip"]
 HOT_DAY_THRESHOLD = 30   # degC
 
 
-# %% Daily mean of every variable over each region
+## Daily mean of every variable over each region
 ## The result is saved to a CSV file: if the file exists, it is read instead of recomputed.
 if DAILY_FILE.exists():
 	print("reading", DAILY_FILE)
@@ -49,7 +53,7 @@ print(daily_climate.head())
 print("from", daily_climate["date"].min().date(), "to", daily_climate["date"].max().date())
 
 
-# %% Harvest year of every day
+## Harvest year of every day
 ## October to December belong to the harvest of the following year; August and September are removed
 daily_climate = add_harvest_year(daily_climate)
 
@@ -62,7 +66,7 @@ daily_climate["tmean"] = (daily_climate["tmax"] + daily_climate["tmin"]) / 2
 daily_climate["temperature_range"] = daily_climate["tmax"] - daily_climate["tmin"]
 
 
-# %% How often is the heat threshold exceeded?
+## How often is the heat threshold exceeded?
 ## The 30 degC threshold of the literature is defined on weather stations, where it is about the
 ## 90th percentile of tmax. Regional means are smoother, so the same threshold is exceeded less often.
 heat_window = daily_climate[daily_climate["month"].isin([5, 6, 7])]
@@ -74,7 +78,7 @@ print("  days above", HOT_DAY_THRESHOLD, "degC:", round(share_above, 2), "%")
 print("  90th percentile:", round(percentile_90, 1), "degC")
 
 
-# %% The indices
+## The indices
 index_table = compute_season_indices(daily_climate)
 
 ## The interaction (index 2 x index 4) is computed in the baseline,
@@ -83,7 +87,7 @@ index_table = compute_season_indices(daily_climate)
 print(index_table.head())
 
 
-# %% Check the indices: range, missing values and share of zeros
+## Check the indices: range, missing values and share of zeros
 ## An index that is almost always zero carries little information
 summary_rows = []
 index_names=index_table.drop(columns=["cod_regione", "harvest_year"]).columns
@@ -103,7 +107,7 @@ index_summary = pd.DataFrame(summary_rows)
 print(index_summary.round(2).to_string(index=False))
 
 
-# %% Join the indices with the yields
+## Join the indices with the yields
 yields = pd.read_csv(PROCESSED_DIR / "yield_anomalies.csv")
 yields = yields.rename(columns={"year": "harvest_year"})
 
@@ -117,6 +121,6 @@ print("harvest years:", baseline_dataset["harvest_year"].min(), "to", baseline_d
 print("region-years:", len(baseline_dataset))
 
 
-# %% Save the dataset
+## Save the dataset
 baseline_dataset.to_csv(DATASET_FILE, index=False)
 print("saved", DATASET_FILE, "with columns:", list(baseline_dataset.columns))

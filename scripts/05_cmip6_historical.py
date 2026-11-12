@@ -1,9 +1,9 @@
-# # Daily distributions of CMIP6 historical and ERA5-Land
+## Daily distributions of CMIP6 historical and ERA5-Land
 ## Requires:
 ##   DATA/CMIP6/<model>/historical/<variable>/*.nc   (daily tasmax, tasmin, pr)
 ##   DATA/ERA5-Land/<variable folders>/*.nc           (daily gridded ERA5-Land: grid, land cells, bias correction)
 ##   DATA/OTHERS/france_regions_2016.gpkg             (region boundaries)
-##   data_processed/era5_daily_regional.csv           (notebook/03_climate_indices.py)
+##   data_processed/era5_daily_regional.csv           (scripts/02_climate_indices.py)
 ##
 ## Common period of the historical simulations and ERA5-Land: 2000-2014.
 ## The model years are not synchronised with the observed weather, so the sources are compared
@@ -18,18 +18,21 @@
 ## and month by month with quantile delta mapping (xsdba) against ERA5-Land 2000-2014,
 ## and only then averaged over the regions, exactly as ERA5-Land.
 
-# %%
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
+import yaml
 import matplotlib.pyplot as plt
 
-from amigo_yield import read_era5, build_region_mask, compute_regional_means, read_cmip6_variable, interpolate_to_grid, train_bias_correction, apply_bias_correction, CMIP6_NAMES
+from amigo_yield import read_era5, build_region_mask, compute_regional_means, read_cmip6_variable, interpolate_to_grid, train_bias_correction, apply_bias_correction, CMIP6_NAMES, compute_distribution_statistics, STATISTIC_NAMES
 
-CMIP6_DIR = Path("DATA/CMIP6")
-ERA5_DIR = Path("DATA/ERA5-Land")
-BOUNDARIES_FILE = Path("DATA/OTHERS/france_regions_2016.gpkg")
+## Settings that change with new data, in config.yml at the root of the repository
+with open("config.yml", encoding="utf-8") as config_file:
+	pipeline_config = yaml.safe_load(config_file)
+
+CMIP6_DIR = Path(pipeline_config["paths"]["cmip6_dir"])
+ERA5_DIR = Path(pipeline_config["paths"]["era5_dir"])
+BOUNDARIES_FILE = Path(pipeline_config["paths"]["boundaries_file"])
 PROCESSED_DIR = Path("data_processed")
 ERA5_DAILY_FILE = PROCESSED_DIR / "era5_daily_regional.csv"
 CMIP6_HISTORICAL_FILE = PROCESSED_DIR / "cmip6_historical_regional.csv"
@@ -42,7 +45,7 @@ CHUNKS = {"time": -1, "latitude": 24, "longitude": 36}
 RESULTS_DIR = Path("results") / "cmip6"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-MODELS = ["CNRM-ESM2-1", "EC-Earth3", "IPSL-CM6A-LR"]
+MODELS = pipeline_config["cmip6"]["models"]
 VARIABLE_NAMES = ["tmax", "tmin", "precip"]
 
 ## Common period of the historical simulations and ERA5-Land
@@ -53,11 +56,8 @@ END_DATE = "2014-12-31"
 SEASON_MONTHS = [10, 11, 12, 1, 2, 3, 4, 5, 6, 7]
 MONTH_LABELS = ["Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul"]
 
-## Percentiles of the daily distributions
-PERCENTILES = [1, 5, 10, 25, 50, 75, 90, 95, 99]
 
-
-# %% ERA5-Land daily regional means over the common period
+## ERA5-Land daily regional means over the common period
 era5_daily = pd.read_csv(ERA5_DAILY_FILE, parse_dates=["date"])
 is_in_period = (era5_daily["date"] >= START_DATE) & (era5_daily["date"] <= END_DATE)
 era5_daily = era5_daily[is_in_period].copy()
@@ -65,7 +65,7 @@ era5_daily["source"] = "ERA5-Land"
 print("ERA5-Land:", era5_daily["date"].min().date(), "to", era5_daily["date"].max().date())
 
 
-# %% CMIP6 historical daily regional means, raw and bias corrected, same grid and regions as ERA5-Land
+## CMIP6 historical daily regional means, raw and bias corrected, same grid and regions as ERA5-Land
 ## For every model and variable: interpolation on the ERA5-Land grid, bias correction cell by cell
 ## against ERA5-Land, then regional means of the raw and of the corrected grids.
 ## The results are saved to CSV files: if both files exist, they are read instead of recomputed.
@@ -119,7 +119,7 @@ else:
 	print("saved", CMIP6_HISTORICAL_FILE, "and", CMIP6_CORRECTED_FILE)
 
 
-# %% Multi-model mean of the daily values: for every region and day,
+## Multi-model mean of the daily values: for every region and day,
 ## (CNRM-ESM2-1 + EC-Earth3 + IPSL-CM6A-LR) / 3
 multi_model_daily = cmip6_daily.groupby(["cod_regione", "date"])[VARIABLE_NAMES].mean().reset_index()
 multi_model_daily["source"] = "multi-model mean"
@@ -129,13 +129,13 @@ models_per_day = cmip6_daily.groupby(["cod_regione", "date"])["source"].nunique(
 print("days with fewer than 3 models:", int((models_per_day < 3).sum()))
 
 
-# %% Multi-model mean of the corrected daily values: for every region and day,
+## Multi-model mean of the corrected daily values: for every region and day,
 ## (CNRM-ESM2-1 corrected + EC-Earth3 corrected + IPSL-CM6A-LR corrected) / 3
 multi_model_corrected_daily = cmip6_corrected_daily.groupby(["cod_regione", "date"])[VARIABLE_NAMES].mean().reset_index()
 multi_model_corrected_daily["source"] = "multi-model mean corrected"
 
 
-# %% All sources in one table, growing season only
+## All sources in one table, growing season only
 ## One row per source, region and day
 daily = pd.concat([era5_daily, cmip6_daily, multi_model_daily, cmip6_corrected_daily, multi_model_corrected_daily], ignore_index=True)
 is_in_season = daily["date"].dt.month.isin(SEASON_MONTHS)
@@ -143,10 +143,9 @@ daily = daily[is_in_season]
 print(daily.groupby("source")["date"].agg(["min", "max", "count"]))
 
 
-# %% Statistics of the daily distribution of every source
+## Statistics of the daily distribution of every source
 ## For every source and variable: mean, standard deviation, minimum, percentiles and maximum
 ## of all the daily regional values (13 regions x days of the growing season 2000-2014)
-statistic_names = ["mean", "std", "min"] + ["p" + str(p) for p in PERCENTILES] + ["max"]
 
 statistic_rows = []
 ## Order of the rows: ERA5-Land, raw models, raw multi-model mean, corrected models, corrected multi-model mean
@@ -157,34 +156,27 @@ for source in SOURCES:
 	source_days = daily[daily["source"] == source]
 
 	for variable in VARIABLE_NAMES:
-		values = source_days[variable].dropna().to_numpy()
-
 		row = {"source": source, "variable": variable}
-		row["mean"] = values.mean()
-		row["std"] = values.std()
-		row["min"] = values.min()
-		for p in PERCENTILES:
-			row["p" + str(p)] = np.percentile(values, p)
-		row["max"] = values.max()
+		row.update(compute_distribution_statistics(source_days[variable]))
 		statistic_rows.append(row)
 
 statistics = pd.DataFrame(statistic_rows)
 print(statistics)
 
-# %% Tables to read: one per variable, one row per source, one column per statistic
+## Tables to read: one per variable, one row per source, one column per statistic
 for variable in VARIABLE_NAMES:
 	table = statistics[statistics["variable"] == variable]
-	table = table.set_index("source")[statistic_names]
+	table = table.set_index("source")[STATISTIC_NAMES]
 	print()
 	print(variable)
 	print(table.round(1).to_string())
 
 
-# %% Differences from ERA5-Land
+## Differences from ERA5-Land
 ## Temperature: source minus ERA5-Land (degC).
 ## Precipitation: source minus ERA5-Land (mm per day); the low percentiles are 0 for every
 ## source (dry days), so a relative difference would divide by zero.
-era5_statistics = statistics[statistics["source"] == "ERA5-Land"].set_index("variable")[statistic_names]
+era5_statistics = statistics[statistics["source"] == "ERA5-Land"].set_index("variable")[STATISTIC_NAMES]
 
 difference_rows = []
 for _, row in statistics.iterrows():
@@ -192,7 +184,7 @@ for _, row in statistics.iterrows():
 		continue
 
 	difference = {"source": row["source"], "variable": row["variable"]}
-	for name in statistic_names:
+	for name in STATISTIC_NAMES:
 		difference[name] = row[name] - era5_statistics.loc[row["variable"], name]
 	difference_rows.append(difference)
 
@@ -200,18 +192,18 @@ differences = pd.DataFrame(difference_rows)
 
 for variable in VARIABLE_NAMES:
 	table = differences[differences["variable"] == variable]
-	table = table.set_index("source")[statistic_names]
+	table = table.set_index("source")[STATISTIC_NAMES]
 	print()
 	print(variable, "minus ERA5-Land")
 	print(table.round(1).to_string())
 
 
-# %% Save the tables
+## Save the tables
 statistics.to_csv(RESULTS_DIR / "distribution_statistics.csv", index=False)
 differences.to_csv(RESULTS_DIR / "distribution_differences.csv", index=False)
 print("saved results in", RESULTS_DIR)
 
-# %% Monthly climatology over France: ERA5-Land, the three models, the multi-model mean
+## Monthly climatology over France: ERA5-Land, the three models, the multi-model mean
 ## and the spread of the models (shaded band between the lowest and the highest model, month by month).
 ## Top row: raw models. Bottom row: bias-corrected models.
 ## France: mean of the 13 regions on every day, then mean of every calendar month over 2000-2014.
@@ -273,4 +265,3 @@ fig.suptitle("Monthly climatology over France, 2000-2014: mean of all the days o
 fig.legend(handles, labels, loc="lower center", ncol=len(labels), fontsize=11, frameon=False)
 fig.tight_layout(rect=[0, 0.05, 1, 0.95])
 fig.savefig(RESULTS_DIR / "ensemble_seasonal_cycle.png", dpi=150)
-plt.show()

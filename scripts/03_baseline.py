@@ -1,10 +1,9 @@
-# # Baseline: Ridge regression on climate indices
-## Requires data_processed/baseline_dataset.csv: run notebook/03_climate_indices.py first.
+## Baseline: Ridge regression on climate indices
+## Requires data_processed/baseline_dataset.csv: run scripts/02_climate_indices.py first.
 ## Validation: leave-one-year-out. For every test year, everything that depends on the
 ## data (yield trend, standardisation of the indices, choice of the Ridge penalty)
 ## is estimated on the training years only.
 
-# %%
 import json
 from datetime import datetime
 from pathlib import Path
@@ -45,7 +44,7 @@ dataset = pd.read_csv(DATASET_FILE)
 print("region-years:", len(dataset), "| harvest years:", dataset["harvest_year"].min(), "to", dataset["harvest_year"].max())
 
 
-# %% Leave-one-year-out: one Ridge model per test year
+## Leave-one-year-out: one Ridge model per test year
 ## Also a reference model that always predicts zero anomaly (a "normal" year)
 all_years = sorted(dataset["harvest_year"].unique())
 prediction_tables = []
@@ -77,7 +76,7 @@ total_seconds = time.perf_counter() - start_time
 peak_memory_mb = process.memory_info().rss / 1024 ** 2
 print("training seconds:", round(total_seconds, 1), "| memory MB:", round(peak_memory_mb))
 
-# %% Metrics over all region-years
+## Metrics over all region-years
 ## rmse, correlation, loss hit rate and false alarm rate
 ## (definitions in amigo_yield.baseline.compute_metrics)
 metric_rows = {}
@@ -89,7 +88,7 @@ print("seasons with a loss below", LOSS_THRESHOLD, "%:", (predictions["observed"
 print(metrics.round(3).to_string())
 
 
-# %% Year by year: national anomaly (weighted by soft wheat area), observed and predicted
+## Year by year: national anomaly (weighted by soft wheat area), observed and predicted
 yearly_rows = []
 for year, year_rows in predictions.groupby("harvest_year"):
 	weights = year_rows["area_ha"]
@@ -116,10 +115,9 @@ ax.legend()
 ax.grid(axis="y", alpha=0.3)
 fig.tight_layout()
 fig.savefig(RESULTS_DIR / "yearly.png", dpi=150)
-plt.show()
 
 
-# %% Region-years: observed against predicted
+## Region-years: observed against predicted
 fig, ax = plt.subplots(figsize=(5.5, 5.5))
 ax.scatter(predictions["observed"], predictions["ridge"], s=14, color="#1c5cab", alpha=0.7)
 
@@ -134,10 +132,9 @@ ax.set_ylabel("predicted anomaly (%)")
 ax.set_title("Region-years, Ridge (leave-one-year-out)")
 fig.tight_layout()
 fig.savefig(RESULTS_DIR / "scatter.png", dpi=150)
-plt.show()
 
 
-# %% Coefficients of a model fitted on all years (for interpretation only)
+## Coefficients of a model fitted on all years (for interpretation only)
 ## Each coefficient: change in yield anomaly (percentage points) for one standard deviation
 ## of the index above the regional normal. Not used for the evaluation above.
 best_alpha_all = choose_alpha(dataset, ALPHAS, INDEX_NAMES, INTERACTION)
@@ -151,7 +148,7 @@ print("alpha:", best_alpha_all)
 print(coefficients.round(2).sort_values().to_string())
 
 
-# %% Save configuration and results of the baseline
+## Save configuration and results of the baseline
 config = {
 	"model": "Ridge",
 	"validation": "leave-one-year-out; alpha chosen with an inner leave-one-year-out on the training years",
@@ -177,4 +174,3 @@ coefficients.to_csv(RESULTS_DIR / "coefficients.csv", header=["coefficient"])
 
 print("saved results in", RESULTS_DIR)
 
-# %%

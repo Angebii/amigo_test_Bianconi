@@ -1,19 +1,24 @@
 # # Exploration of the climate data
 ## Requires data_processed/yield_anomalies.csv and national_yield_anomaly.csv:
-## run notebook/01_explore_yields.py first.
+## run scripts/01_yield_anomalies.py first.
 
 # %% Read all ERA5-Land variables
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import yaml
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 
 from amigo_yield import read_era5, compute_wind_speed, build_region_mask, compute_regional_means, add_harvest_year
 
-ERA5_DIR = Path("DATA/ERA5-Land")
-BOUNDARIES_FILE = Path("DATA/OTHERS/france_regions_2016.gpkg")
+## Settings that change with new data, in config.yml at the root of the repository
+with open("config.yml", encoding="utf-8") as config_file:
+	pipeline_config = yaml.safe_load(config_file)
+
+ERA5_DIR = Path(pipeline_config["paths"]["era5_dir"])
+BOUNDARIES_FILE = Path(pipeline_config["paths"]["boundaries_file"])
 PROCESSED_DIR = Path("data_processed")
 
 era5_variables, era5_summary = read_era5(ERA5_DIR)

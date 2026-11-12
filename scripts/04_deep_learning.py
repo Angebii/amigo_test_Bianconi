@@ -1,15 +1,14 @@
-# # Deep learning model: 1D convolutional network on the daily climate of the season
+## Deep learning model: 1D convolutional network on the daily climate of the season
 ## Requires:
-##   data_processed/baseline_dataset.csv     (notebook/03_climate_indices.py)
-##   data_processed/era5_daily_regional.csv  (notebook/03_climate_indices.py)
-##   results/baseline/predictions.csv        (notebook/04_baseline.py), for the comparison
+##   data_processed/baseline_dataset.csv     (scripts/02_climate_indices.py)
+##   data_processed/era5_daily_regional.csv  (scripts/02_climate_indices.py)
+##   results/baseline/predictions.csv        (scripts/03_baseline.py), for the comparison
 ##
 ## Nested cross-validation grouped by year (see amigo_yield.deep):
 ##   outer loop - leave-one-year-out, the same test years as the Ridge baseline
 ##   inner loop - learning rate, weight decay and number of epochs chosen on the training years
 ##   final model - trained on all the training years, one model per seed
 
-# %%
 import json
 from datetime import datetime
 from pathlib import Path
@@ -64,7 +63,7 @@ daily_climate = pd.read_csv(DAILY_FILE, parse_dates=["date"])
 print("region-years:", len(dataset), "| harvest years:", dataset["harvest_year"].min(), "to", dataset["harvest_year"].max())
 
 
-# %% Daily sequences: one block of 304 days x 3 variables for every region-year
+## Daily sequences: one block of 304 days x 3 variables for every region-year
 sequences = build_daily_sequences(daily_climate, dataset, VARIABLE_NAMES)
 print("sequences:", sequences.shape)
 
@@ -74,12 +73,12 @@ number_of_parameters = count_parameters(example_model)
 print("trainable parameters:", number_of_parameters)
 
 
-# %% Nested cross-validation (this cell takes a while: one Optuna search per test year)
+## Nested cross-validation (this cell takes a while: one Optuna search per test year)
 predictions, folds, learning_curves = run_deep_leave_one_year_out(dataset, sequences, SETTINGS)
 print(folds.round(4).to_string(index=False))
 
 
-# %% Learning curves: one summary over all the inner folds
+## Learning curves: one summary over all the inner folds
 ## Every inner training (19 test years x 3 inner folds = 57 trainings) starts from a different level
 ## of error, so each curve is expressed as the change from its first epoch.
 ## Early stopping waits `patience` epochs, so every training lasts at least patience + 1 epochs:
@@ -111,13 +110,12 @@ ax.legend()
 ax.grid(alpha=0.3)
 fig.tight_layout()
 fig.savefig(RESULTS_DIR / "learning_curves.png", dpi=150)
-plt.show()
 
 ## Numbers for the report: median change after the last shown epoch
 print(summary.loc[shown_epochs].round(2))
 
 
-# %% One table with all the models, one row per region and year
+## One table with all the models, one row per region and year
 comparison = pd.read_csv(BASELINE_PREDICTIONS_FILE)
 comparison = comparison[["cod_regione", "regione", "harvest_year", "area_ha", "observed", "ridge"]]
 comparison["zero"] = 0.0
@@ -133,7 +131,7 @@ comparison = comparison.drop(columns="observed_cnn")
 
 MODEL_NAMES = ["zero", "ridge", "cnn"]
 
-# %% Metrics of all the models
+## Metrics of all the models
 metric_rows = {}
 for model_name in MODEL_NAMES:
 	metric_rows[model_name] = compute_metrics(comparison["observed"], comparison[model_name], LOSS_THRESHOLD)
@@ -142,7 +140,7 @@ metrics = pd.DataFrame(metric_rows).T
 print(metrics.round(3).to_string())
 
 
-# %% Year by year: national anomaly (weighted by area) of every model
+## Year by year: national anomaly (weighted by area) of every model
 yearly_rows = []
 for year, year_rows in comparison.groupby("harvest_year"):
 	weights = year_rows["area_ha"]
@@ -179,9 +177,8 @@ ax.legend()
 ax.grid(axis="y", alpha=0.3)
 fig.tight_layout()
 fig.savefig(RESULTS_DIR / "yearly.png", dpi=150)
-plt.show()
 
-# %% Save configuration and results of the deep model
+## Save configuration and results of the deep model
 config = {
 	"model": "1D CNN on daily sequences with max pooling",
 	"validation": "nested cross-validation grouped by year: outer leave-one-year-out, inner 3 groups of training years",
