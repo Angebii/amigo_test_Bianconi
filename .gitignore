@@ -1,2 +1,9 @@
 DATA/
 .vscode/
+data_processed/
+src/amigo_yield/__pycache__
+src/amigo_yield.egg-info
+results/
+tests/__pycache__
+results_before/
+__pycache__/

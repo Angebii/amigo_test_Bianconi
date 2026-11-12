@@ -5,19 +5,25 @@ dependencies:
   - python=3.11
   # data handling
   - numpy
+  - openpyxl
   - pandas
   # climate data
   - xarray
-  - netcdf4                 
+  - netcdf4
+  - dask                 
   # spatial data
   - geopandas
+  - regionmask
   # modelling
-  - scikit-learn    
-  # plotting
+  - scikit-learn 
+  - optuna   
+  # plotting, config, test
   - matplotlib
   - pyyaml
   - psutil          
   - pytest
   - pip
+  - ipykernel
   - pip:
-      - torch       
+      - torch
+      - xsdba       
