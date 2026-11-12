@@ -122,7 +122,7 @@ comparison = pd.read_csv(BASELINE_PREDICTIONS_FILE)
 comparison = comparison[["cod_regione", "regione", "harvest_year", "area_ha", "observed", "ridge"]]
 comparison["zero"] = 0.0
 
-cnn_columns = predictions[["cod_regione", "harvest_year", "observed", "cnn", "cnn_seed_std", "cnn_mc_std"]]
+cnn_columns = predictions[["cod_regione", "harvest_year", "observed", "cnn", "cnn_mc_std"]]
 cnn_columns = cnn_columns.rename(columns={"observed": "observed_cnn"})
 comparison = comparison.merge(cnn_columns, on=["cod_regione", "harvest_year"])
 
