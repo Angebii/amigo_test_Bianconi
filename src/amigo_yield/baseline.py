@@ -111,7 +111,6 @@ def choose_alpha(train_rows, alphas, index_names, interaction=None):
 
 ## Metrics of the predictions of one model.
 ## rmse: typical error in percentage points of anomaly
-## skill_vs_zero: 1 - (RMSE model / RMSE zero model)^2; above 0 = better than predicting a normal year
 ## loss_hit_rate: share of loss seasons predicted as losses
 ## loss_false_alarm_rate: share of the other seasons wrongly predicted as losses
 def compute_metrics(observed, predicted, loss_threshold):
@@ -119,7 +118,6 @@ def compute_metrics(observed, predicted, loss_threshold):
 	predicted = np.asarray(predicted)
 
 	rmse = np.sqrt(np.mean((predicted - observed) ** 2))
-	rmse_zero = np.sqrt(np.mean(observed ** 2))
 
 	## The correlation is not defined for a model that always predicts the same value
 	if np.std(predicted) > 0:
@@ -134,7 +132,6 @@ def compute_metrics(observed, predicted, loss_threshold):
 
 	return {
 		"rmse": rmse,
-		"skill_vs_zero": 1 - (rmse / rmse_zero) ** 2,
 		"correlation": correlation,
 		"loss_hit_rate": hit_rate,
 		"loss_false_alarm_rate": false_alarm_rate,

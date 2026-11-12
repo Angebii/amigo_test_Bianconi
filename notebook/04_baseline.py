@@ -1,6 +1,5 @@
 # # Baseline: Ridge regression on climate indices
 ## Requires data_processed/baseline_dataset.csv: run notebook/03_climate_indices.py first.
-##
 ## Validation: leave-one-year-out. For every test year, everything that depends on the
 ## data (yield trend, standardisation of the indices, choice of the Ridge penalty)
 ## is estimated on the training years only.
@@ -9,7 +8,8 @@
 import json
 from datetime import datetime
 from pathlib import Path
-
+import time
+import psutil
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -49,7 +49,9 @@ print("region-years:", len(dataset), "| harvest years:", dataset["harvest_year"]
 ## Also a reference model that always predicts zero anomaly (a "normal" year)
 all_years = sorted(dataset["harvest_year"].unique())
 prediction_tables = []
-
+## Training time and memory of the whole leave-one-year-out, measured as in the deep model
+process = psutil.Process()
+start_time = time.perf_counter()
 for test_year in all_years:
 	is_test = dataset["harvest_year"] == test_year
 	train_rows = dataset[~is_test]
@@ -71,10 +73,12 @@ for test_year in all_years:
 	print(test_year, "alpha:", best_alpha)
 
 predictions = pd.concat(prediction_tables, ignore_index=True)
-
+total_seconds = time.perf_counter() - start_time
+peak_memory_mb = process.memory_info().rss / 1024 ** 2
+print("training seconds:", round(total_seconds, 1), "| memory MB:", round(peak_memory_mb))
 
 # %% Metrics over all region-years
-## rmse, skill against the zero model, correlation, loss hit rate and false alarm rate
+## rmse, correlation, loss hit rate and false alarm rate
 ## (definitions in amigo_yield.baseline.compute_metrics)
 metric_rows = {}
 for model_name in ["ridge", "zero"]:
@@ -158,6 +162,9 @@ config = {
 	"harvest_years": [int(dataset["harvest_year"].min()), int(dataset["harvest_year"].max())],
 	"region_years": int(len(dataset)),
 	"alpha_all_years": float(best_alpha_all),
+    "trainable_parameters": len(coefficients) + 1,
+	"total_seconds": total_seconds,
+	"peak_memory_mb": peak_memory_mb,
 	"run_date": datetime.now().isoformat(timespec="seconds"),
 }
 with open(RESULTS_DIR / "config.json", "w") as config_file:
