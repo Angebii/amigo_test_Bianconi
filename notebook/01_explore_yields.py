@@ -12,6 +12,7 @@ from amigo_yield import get_crop_table, compute_regional_anomalies
 
 XLSX = Path("DATA/OTHERS/Agreste_SAA_cereali_mais_Francia_2000-2020 (1).xlsx")
 PROCESSED_DIR = Path("data_processed")
+PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
 sheet_names = pd.ExcelFile(XLSX).sheet_names
 print(sheet_names)

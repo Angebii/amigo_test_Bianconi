@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from amigo_yield import read_era5, build_region_mask, compute_regional_means, add_harvest_year, compute_window_index
+from amigo_yield import compute_season_indices, read_era5, build_region_mask, compute_regional_means, add_harvest_year, compute_window_index
 
 ERA5_DIR = Path("DATA/ERA5-Land")
 BOUNDARIES_FILE = Path("DATA/OTHERS/france_regions_2016.gpkg")
@@ -75,33 +75,7 @@ print("  90th percentile:", round(percentile_90, 1), "degC")
 
 
 # %% The indices
-## Windows and thresholds are set here, so they can be changed in one place
-indices = {}
-
-## 1. Autumn-winter rain: waterlogged soils at sowing and during winter (2001; west of France)
-indices["precip_oct_jan"] = compute_window_index(daily_climate, "precip", [10, 11, 12, 1], "sum")
-
-## 2. Late autumn temperature: warm late autumn, first part of the 2016 compound event (Ben-Ari et al. 2018)
-indices["tmean_nov_dec"] = compute_window_index(daily_climate, "tmean", [11, 12], "mean")
-
-## 3. Early spring rain: spring drought (2003, 2011); rain in March-April also favours foliar diseases
-indices["precip_mar_apr"] = compute_window_index(daily_climate, "precip", [3, 4], "sum")
-
-## 4. Late spring rain around anthesis: wet spring, second part of the 2016 compound event
-indices["precip_may_jun"] = compute_window_index(daily_climate, "precip", [5, 6], "sum")
-
-## 5. Temperature range in late spring: indirect signal of cloud cover (no radiation in the data)
-indices["temperature_range_may_jun"] = compute_window_index(daily_climate, "temperature_range", [5, 6], "mean")
-
-## 6. Late spring heat: mean tmax during anthesis and grain filling (2003; Gammans et al. 2017)
-indices["tmax_may_jun"] = compute_window_index(daily_climate, "tmax", [5, 6], "mean")
-
-## 7. Hot days during anthesis and grain filling: days with tmax above 30 degC (Noia Junior et al. 2025)
-indices["hot_days_may_jul"] = compute_window_index(daily_climate, "tmax", [5, 6, 7], "days_above", HOT_DAY_THRESHOLD)
-
-index_table = pd.DataFrame(indices)
-index_table = index_table.reset_index()
-index_names = list(indices.keys())
+index_table = compute_season_indices(daily_climate)
 
 ## The interaction (index 2 x index 4) is computed in the baseline,
 ## after standardising the indices on the training years of each fold.
@@ -112,6 +86,7 @@ print(index_table.head())
 # %% Check the indices: range, missing values and share of zeros
 ## An index that is almost always zero carries little information
 summary_rows = []
+index_names=index_table.drop(columns=["cod_regione", "harvest_year"]).columns
 for name in index_names:
 	values = index_table[name].dropna()
 	row = {
