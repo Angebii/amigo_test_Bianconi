@@ -1,0 +1,27 @@
+## Configuration of the pipeline: the settings to change to run it on new data.
+## Paths are relative to the root of the repository.
+## The methodological choices (indices, loss threshold, model settings, bias correction)
+## are set in the scripts and described in the report.
+
+## Input data
+paths:
+  era5_dir: DATA/ERA5-Land
+  cmip6_dir: DATA/CMIP6
+  boundaries_file: DATA/OTHERS/france_regions_2016.gpkg
+  yields_file: "DATA/OTHERS/Agreste_SAA_cereali_mais_Francia_2000-2020 (1).xlsx"
+
+## Present: harvest seasons of the yields used to train the Ridge regression,
+## from the sowing of the first season (1 October) to the harvest of the last one (31 July)
+present:
+  name: "2001-2019"
+  period: ["2000-10-01", "2019-07-31"]
+
+## CMIP6 models, future scenario and future windows (first and last day of every window).
+## experiment is the folder name in DATA/CMIP6/<model>/, label is the name used in the figures.
+cmip6:
+  models: [CNRM-ESM2-1, EC-Earth3, IPSL-CM6A-LR]
+  experiment: ssp585
+  label: SSP5-8.5
+  windows:
+    "2031-2050": ["2030-10-01", "2050-07-31"]
+    "2071-2090": ["2070-10-01", "2090-07-31"]
