@@ -27,6 +27,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import Ridge
+import matplotlib.pyplot as plt
 
 from amigo_yield import prepare_fold, prepare_inputs, compute_season_indices, INDEX_NAMES, read_era5, build_region_mask, compute_regional_means, read_cmip6_variable, interpolate_to_grid, train_bias_correction, apply_bias_correction, CMIP6_NAMES
 
@@ -478,3 +479,68 @@ yield_summary.to_csv(RESULTS_DIR / "yield_anomaly_summary.csv")
 outside_shares.to_csv(RESULTS_DIR / "extrapolation_shares.csv")
 print("saved results in", RESULTS_DIR)
 
+# %% Multi-model mean: the daily values of the three corrected models averaged for every region and day
+## (multi_model_future, computed above), then indices and Ridge regression as for every model
+multi_model_tables = []
+for window in WINDOWS:
+	window_days = multi_model_future[multi_model_future["window"] == window]
+	window_indices = compute_season_indices(window_days)
+	window_indices["source"] = "multi-model mean corrected"
+	window_indices["window"] = window
+	multi_model_tables.append(window_indices)
+
+multi_model_indices = pd.concat(multi_model_tables, ignore_index=True)
+multi_model_indices = multi_model_indices.dropna(subset=INDEX_NAMES)
+is_baseline_region = multi_model_indices["cod_regione"].isin(baseline_dataset["cod_regione"].unique())
+multi_model_indices = multi_model_indices[is_baseline_region].reset_index(drop=True)
+
+_, x_multi_model = prepare_inputs(baseline_dataset, multi_model_indices, ridge_index_names, ridge_interaction)
+multi_model_indices["predicted_anomaly"] = final_ridge.predict(x_multi_model)
+
+for window in WINDOWS:
+	rows = multi_model_indices[multi_model_indices["window"] == window]
+	yield_summary.loc[(window, "multi-model mean corrected"), "mean predicted anomaly %"] = rows["predicted_anomaly"].mean()
+	yield_summary.loc[(window, "multi-model mean corrected"), "predicted loss seasons %"] = (rows["predicted_anomaly"] < LOSS_THRESHOLD).mean() * 100
+
+yield_summary = yield_summary.sort_index()
+print(yield_summary.round(1).to_string())
+
+# %% Figure: share of seasons with a predicted loss, present and future windows.
+## Bar: mean of the three models (ensemble mean). Dots: every model, so the distance between the
+## dots shows how much the result depends on the climate model. Black diamond: multi-model mean
+## (daily values of the three models averaged before computing the indices).
+MODEL_COLOURS = {
+	"CNRM-ESM2-1 corrected": "#eb6834",
+	"EC-Earth3 corrected": "#1baf7a",
+	"IPSL-CM6A-LR corrected": "#eda100",
+}
+name = "predicted loss seasons %"
+window_names = ["2001-2019"] + list(WINDOWS)
+
+fig, ax = plt.subplots(figsize=(7, 5))
+
+## Present: one bar (ERA5-Land)
+ax.bar(0, yield_summary.loc[("2001-2019", "ERA5-Land"), name], width=0.6, color="#9e9e9e")
+
+## Future: bar = ensemble mean, dots = the three models, diamond = multi-model mean
+for position, window in enumerate(WINDOWS, start=1):
+	label = "ensemble mean" if position == 1 else None
+	ax.bar(position, yield_summary.loc[(window, "ensemble mean"), name], width=0.6, color="#2a78d6", label=label)
+
+	for model in CORRECTED_MODELS:
+		label = model.replace(" corrected", "") if position == 1 else None
+		ax.scatter(position, yield_summary.loc[(window, model), name], color=MODEL_COLOURS[model], edgecolor="white", s=80, zorder=3, label=label)
+
+	label = "multi-model mean" if position == 1 else None
+	ax.scatter(position, yield_summary.loc[(window, "multi-model mean corrected"), name], marker="D", color="black", s=70, zorder=4, label=label)
+
+ax.set_xticks(range(len(window_names)))
+ax.set_xticklabels(["present\n2001-2019", "2031-2050", "2071-2090"], fontsize=11)
+ax.set_ylabel("Seasons with a predicted loss (%)", fontsize=12)
+ax.set_title("Seasons with a yield loss larger than 10%, SSP5-8.5", fontsize=13)
+ax.tick_params(axis="y", labelsize=11)
+ax.grid(axis="y", alpha=0.3)
+ax.legend(fontsize=10, frameon=False, loc="upper left")
+fig.tight_layout()
+fig.savefig(RESULTS_DIR / "loss_seasons.png", dpi=150)
+plt.show()
