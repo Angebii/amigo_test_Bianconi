@@ -107,6 +107,8 @@ print(loss_values.round(2).to_string(index=False))
 print()
 print("Difference from the normal of the region:")
 print(loss_differences.round(2).to_string(index=False))
+
+
 # %% Function: monthly climate and yield anomaly over the whole period
 ## monthly_table: one row per month with the columns date, month, harvest_year,
 ## the climate variables and anomaly_pct (one value per season).
@@ -223,4 +225,140 @@ smallest_loss_monthly = monthly_with_yield[is_region]
 
 title = smallest_loss_name + " (smallest loss, worst season " + str(round(smallest_loss_value)) + "%): monthly climate and yield anomaly"
 plot_climate_and_yield(smallest_loss_monthly, title, PLOT_VARIABLES, LOSS_THRESHOLD)
+# %%Wind and precipitation of every region-season in two windows, as deviations from the
+## regional mean, compared with the yield anomaly.
+WINDOWS = {
+	"oct_feb": [10, 11, 12, 1, 2],
+	"may_jul": [5, 6, 7],
+}
+
+result_rows = []
+for window_name, months in WINDOWS.items():
+
+	## Mean of every region-season over the months of the window
+	window_rows = monthly_with_yield[monthly_with_yield["month"].isin(months)]
+	seasonal = window_rows.groupby(["cod_regione", "harvest_year"])[["wind", "precip", "anomaly_pct"]].mean()
+
+	## Deviation of wind and precipitation from the mean of their region
+	regional_means = seasonal.groupby("cod_regione")[["wind", "precip"]].transform("mean")
+	wind_deviation = seasonal["wind"] - regional_means["wind"]
+	precip_deviation = seasonal["precip"] - regional_means["precip"]
+	yield_anomaly = seasonal["anomaly_pct"]
+
+	## 1. Redundancy: correlation between wind and precipitation
+	wind_precip = np.corrcoef(wind_deviation, precip_deviation)[0, 1]
+
+	## 2. Correlation between wind and yield
+	wind_yield = np.corrcoef(wind_deviation, yield_anomaly)[0, 1]
+
+	## 3. Partial correlation: remove from wind and yield the part explained by precipitation
+	wind_slope, wind_intercept = np.polyfit(precip_deviation, wind_deviation, deg=1)
+	wind_residual = wind_deviation - (wind_slope * precip_deviation + wind_intercept)
+
+	yield_slope, yield_intercept = np.polyfit(precip_deviation, yield_anomaly, deg=1)
+	yield_residual = yield_anomaly - (yield_slope * precip_deviation + yield_intercept)
+
+	wind_yield_partial = np.corrcoef(wind_residual, yield_residual)[0, 1]
+
+	row = {
+		"window": window_name,
+		"wind_vs_precip": wind_precip,
+		"wind_vs_yield": wind_yield,
+		"wind_vs_yield_without_precip": wind_yield_partial,
+	}
+	result_rows.append(row)
+
+print(pd.DataFrame(result_rows).round(2).to_string(index=False))
+# %% Correlation between monthly climate and yield anomaly
+## For every month of the season and every variable: correlation between the deviation
+## from the regional normal of that month and the yield anomaly of the season.
+CORRELATION_VARIABLES = ["tmax", "tmin", "precip", "wind"]
+SEASON_MONTHS = [10, 11, 12, 1, 2, 3, 4, 5, 6, 7]
+MONTH_LABELS = ["Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul"]
+
+## Normal of every region and month, and deviation of every region-season from it
+monthly_normals = monthly_with_yield.groupby(["cod_regione", "month"])[CORRELATION_VARIABLES].transform("mean")
+deviations = monthly_with_yield[CORRELATION_VARIABLES] - monthly_normals
+deviations["month"] = monthly_with_yield["month"]
+deviations["anomaly_pct"] = monthly_with_yield["anomaly_pct"]
+
+## One correlation for every month and variable
+correlations = pd.DataFrame(index=MONTH_LABELS, columns=CORRELATION_VARIABLES, dtype=float)
+for month, label in zip(SEASON_MONTHS, MONTH_LABELS):
+	month_rows = deviations[deviations["month"] == month]
+	for variable in CORRELATION_VARIABLES:
+		correlations.loc[label, variable] = np.corrcoef(month_rows[variable], month_rows["anomaly_pct"])[0, 1]
+
+print(correlations.round(2).to_string())
+
+## Heat map: red = more of the variable goes with lower yields, blue = with higher yields
+fig, ax = plt.subplots(figsize=(5, 6))
+image = ax.imshow(correlations.to_numpy(), cmap="RdBu", vmin=-0.5, vmax=0.5, aspect="auto")
+ax.set_xticks(range(len(CORRELATION_VARIABLES)))
+ax.set_xticklabels(CORRELATION_VARIABLES)
+ax.set_yticks(range(len(MONTH_LABELS)))
+ax.set_yticklabels(MONTH_LABELS)
+for row in range(len(MONTH_LABELS)):
+	for column in range(len(CORRELATION_VARIABLES)):
+		ax.text(column, row, f"{correlations.iloc[row, column]:.2f}", ha="center", va="center", fontsize=8)
+fig.colorbar(image, ax=ax, label="correlation with yield anomaly")
+ax.set_title("Monthly climate deviation vs yield anomaly")
+fig.tight_layout()
+plt.show()
+
+
+# %% Correlation between the variables, month by month
+## High values = two variables carry largely the same information in that month
+pairs = [("tmax", "tmin"), ("tmax", "precip"), ("precip", "wind"), ("tmin", "precip")]
+
+pair_correlations = pd.DataFrame(index=MONTH_LABELS, dtype=float)
+for first, second in pairs:
+	pair_name = first + " vs " + second
+	for month, label in zip(SEASON_MONTHS, MONTH_LABELS):
+		month_rows = deviations[deviations["month"] == month]
+		pair_correlations.loc[label, pair_name] = np.corrcoef(month_rows[first], month_rows[second])[0, 1]
+
+print(pair_correlations.round(2).to_string())
+# %% November wind: effect of precipitation, or of a single season?
+november = deviations[deviations["month"] == 11].copy()
+november["harvest_year"] = monthly_with_yield.loc[november.index, "harvest_year"]
+
+## 1. Partial correlation: remove from wind and yield the part explained by precipitation
+wind_slope, wind_intercept = np.polyfit(november["precip"], november["wind"], deg=1)
+wind_residual = november["wind"] - (wind_slope * november["precip"] + wind_intercept)
+yield_slope, yield_intercept = np.polyfit(november["precip"], november["anomaly_pct"], deg=1)
+yield_residual = november["anomaly_pct"] - (yield_slope * november["precip"] + yield_intercept)
+print("wind vs yield:", round(np.corrcoef(november["wind"], november["anomaly_pct"])[0, 1], 2))
+print("wind vs yield without precipitation:", round(np.corrcoef(wind_residual, yield_residual)[0, 1], 2))
+
+## 2. The same correlation without 2016
+without_2016 = november[november["harvest_year"] != 2016]
+print("wind vs yield without 2016:", round(np.corrcoef(without_2016["wind"], without_2016["anomaly_pct"])[0, 1], 2))
+
+## 3. Scatter: every point is a region-season, the 2016 season in red
+fig, ax = plt.subplots(figsize=(5, 4))
+is_2016 = november["harvest_year"] == 2016
+ax.scatter(november.loc[~is_2016, "wind"], november.loc[~is_2016, "anomaly_pct"], s=14, color="0.5", label="other seasons")
+ax.scatter(november.loc[is_2016, "wind"], november.loc[is_2016, "anomaly_pct"], s=20, color="#b2302f", label="2016")
+ax.set_xlabel("November wind, deviation from regional normal (m/s)")
+ax.set_ylabel("yield anomaly (%)")
+ax.legend()
+fig.tight_layout()
+plt.show()
+# %% November wind in loss seasons and in the other seasons
+is_loss = november["anomaly_pct"] < -10
+
+print("loss seasons:", is_loss.sum(), "| mean November wind deviation:", round(november.loc[is_loss, "wind"].mean(), 2))
+print("other seasons:", (~is_loss).sum(), "| mean November wind deviation:", round(november.loc[~is_loss, "wind"].mean(), 2))
+
+## Share of loss seasons among the windy and the calm Novembers
+is_windy = november["wind"] > 0
+print("losses after a windy November:", round(is_loss[is_windy].mean(), 2))
+print("losses after a calm November:", round(is_loss[~is_windy].mean(), 2))
+# %%
+# %% Correlation between the climate variables (deviations from the regional monthly normal)
+# %%
+# %% In how many different years do the losses after a windy November fall?
+losses_after_windy = november[is_loss & is_windy]
+print(losses_after_windy.groupby("harvest_year").size().to_string())
 # %%
