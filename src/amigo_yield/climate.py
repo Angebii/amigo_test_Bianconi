@@ -22,6 +22,10 @@ SEASON_START_MONTH = 10
 SEASON_END_MONTH = 7
 SECONDS_PER_DAY = 86400
 
+## Percentiles of the daily distributions, and names of all the statistics in the order of the tables
+PERCENTILES = [1, 5, 10, 25, 50, 75, 90, 95, 99]
+STATISTIC_NAMES = ["mean", "std", "min"] + ["p" + str(p) for p in PERCENTILES] + ["max"]
+
 
 ## Short name of a variable from the name of its folder
 def get_short_name(folder_name):
@@ -167,3 +171,20 @@ def add_harvest_year(table, date_column="date"):
 	is_in_season = (table["month"] >= SEASON_START_MONTH) | (table["month"] <= SEASON_END_MONTH)
 	table = table[is_in_season]
 	return table
+
+
+## Statistics of a daily distribution: mean, standard deviation, minimum, percentiles and maximum
+## of all the values, missing values removed.
+## Returns a dictionary with one entry for every name in STATISTIC_NAMES.
+def compute_distribution_statistics(values):
+	values = np.asarray(values, dtype=float)
+	values = values[~np.isnan(values)]
+
+	statistics = {}
+	statistics["mean"] = values.mean()
+	statistics["std"] = values.std()
+	statistics["min"] = values.min()
+	for p in PERCENTILES:
+		statistics["p" + str(p)] = np.percentile(values, p)
+	statistics["max"] = values.max()
+	return statistics

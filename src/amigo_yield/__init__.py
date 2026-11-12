@@ -1,7 +1,7 @@
 ## Shared functions for the analysis of soft wheat yields and climate in France.
 ## The functions are organised in modules by topic:
 ##   yields    - Agreste yield tables and regional yield anomalies
-##   climate   - ERA5-Land reading, regional means, harvest year
+##   climate   - ERA5-Land reading, regional means, harvest year, statistics of daily distributions
 ##   indices   - climate indices over windows of months
 ##   baseline  - baseline model
 ##   deep      - deep model
@@ -20,6 +20,8 @@ from amigo_yield.climate import (
 	build_region_mask,
 	compute_regional_means,
 	add_harvest_year,
+	compute_distribution_statistics,
+	STATISTIC_NAMES,
 )
 from amigo_yield.indices import (
 	compute_window_index,
